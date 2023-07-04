@@ -1,0 +1,162 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "parameters": {},
+        "triggers": {
+            "Recurrence": {
+                "type": "Recurrence",
+                "recurrence": {
+                    "frequency": "Day",
+                    "interval": 1
+                }
+            }
+        },
+        "variables": {
+            "inactivityDays": 30,
+            "disableDays": 60,
+            "holdDays": 90
+        },
+        "actions": {
+            "ListUsers": {
+                "inputs": {
+                    "host": {
+                        "api": {
+                            "runtimeUrl": "https://management.azure.com"
+                        },
+                        "connection": {
+                            "name": "@parameters('$connections')['azuread']['connectionId']"
+                        }
+                    },
+                    "method": "get",
+                    "path": "/users",
+                    "queries": {
+                        "$filter": "lastActivityDateTime le @{addDays(utcNow(), -variables('inactivityDays'))}"
+                    }
+                },
+                "runAfter": {},
+                "type": "ApiConnection"
+            },
+            "SendEmail": {
+                "inputs": {
+                    "body": {
+                        "Body": "Dear @{items('For_each')?['displayName']},<br><br>Your account has been inactive for some time. Please log in to your account to avoid any interruptions.<br><br>Best regards,<br>Your Organization"
+                    },
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['office365']['connectionId']"
+                        }
+                    },
+                    "method": "post",
+                    "path": "/v2/Mail/send",
+                    "queries": {
+                        "to": "@{items('For_each')?['userPrincipalName']}",
+                        "subject": "Account Inactivity Notification"
+                    }
+                },
+                "runAfter": {
+                    "ListUsers": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection"
+            },
+            "DisableUser": {
+                "inputs": {
+                    "body": {
+                        "accountEnabled": false
+                    },
+                    "host": {
+                        "api": {
+                            "runtimeUrl": "https://management.azure.com"
+                        },
+                        "connection": {
+                            "name": "@parameters('$connections')['azuread']['connectionId']"
+                        }
+                    },
+                    "method": "patch",
+                    "path": "/users/@{items('For_each_2')?['id']}"
+                },
+                "runAfter": {
+                    "SendEmail": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection"
+            },
+            "ApplyHold": {
+                "inputs": {
+                    "body": {
+                        "litigationHoldEnabled": true
+                    },
+                    "host": {
+                        "api": {
+                            "runtimeUrl": "https://management.azure.com"
+                        },
+                        "connection": {
+                            "name": "@parameters('$connections')['exchangeonline']['connectionId']"
+                        }
+                    },
+                    "method": "patch",
+                    "path": "/users/@{items('For_each_3')?['userPrincipalName']}/mailboxSettings"
+                },
+                "runAfter": {
+                    "DisableUser": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection"
+            },
+            "RemoveLicense": {
+                "inputs": {
+                    "body": {},
+                    "host": {
+                        "api": {
+                            "runtimeUrl": "https://management.azure.com"
+                        },
+                        "connection": {
+                            "name": "@parameters('$connections')['office365users']['connectionId']"
+                        }
+                    },
+                    "method": "post",
+                    "path": "/users/@{items('For_each_3')?['userPrincipalName']}/removeLicense"
+                },
+                "runAfter": {
+                    "ApplyHold": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection"
+            }
+        },
+        "triggers": {
+            "Recurrence": {
+                "type": "Recurrence",
+                "recurrence": {
+                    "frequency": "Day",
+                    "interval": 1
+                }
+            }
+        },
+        "runAfter": {
+            "ListUsers": [
+                "Succeeded"
+            ],
+            "SendEmail": [
+                "Succeeded"
+            ],
+            "DisableUser": [
+                "Succeeded"
+            ],
+            "ApplyHold": [
+                "Succeeded"
+            ]
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "defaultValue": {},
+            "type": "Object"
+        }
+    }
+}
